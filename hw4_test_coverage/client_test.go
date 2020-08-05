@@ -125,7 +125,6 @@ func SearchServer(w http.ResponseWriter, r *http.Request) {
         io.WriteString(w, fmt.Sprintf(`{"Error": "%v"}`, err))
         return
     }
-    fmt.Printf("%+v\n", params)
     file, err := os.Open("dataset.xml")
     if err != nil {
         w.WriteHeader(http.StatusInternalServerError)
@@ -147,7 +146,6 @@ func SearchServer(w http.ResponseWriter, r *http.Request) {
         io.WriteString(w, fmt.Sprintf(`{"Error": "Cannot parse dataset"}`))
         return
     }
-    fmt.Printf("Read users: %v\n", len(rootXml.Rows))
 
     users := ConvertUsersXml(rootXml.Rows)
 
@@ -240,7 +238,7 @@ func TestSearchServer(t *testing.T) {
             Limit:      "10",
             Offset:     "bad",
             StatusCode: http.StatusBadRequest,
-            Response:   `{"Error": "Cannot parse offset"}`,
+            Response:   `{"Error": "Cannot parse offset (strconv.Atoi: parsing "bad": invalid syntax)"}`,
         },
         TestSearch {
             Limit:      "10",
@@ -249,11 +247,43 @@ func TestSearchServer(t *testing.T) {
             Response:   `{"Error": "Offset must be > 0"}`,
         },
         TestSearch {
+            Limit:      "1",
+            Offset:     "0",
+            OrderField: "Name",
+            OrderBy:    "-1",
+            StatusCode: http.StatusOK,
+            Response:   `[{"Id":15,"Name":"Allison Valdez","Age":21,"About":"Labore excepteur voluptate velit occaecat est nisi minim. Laborum ea et irure nostrud enim sit incididunt reprehenderit id est nostrud eu. Ullamco sint nisi voluptate cillum nostrud aliquip et minim. Enim duis esse do aute qui officia ipsum ut occaecat deserunt. Pariatur pariatur nisi do ad dolore reprehenderit et et enim esse dolor qui. Excepteur ullamco adipisicing qui adipisicing tempor minim aliquip.\n","Gender":"male"}]`,
+        },
+        TestSearch {
+            Limit:      "1",
+            Offset:     "0",
+            OrderField: "Name",
+            OrderBy:    "1",
+            StatusCode: http.StatusOK,
+            Response:   `[{"Id":13,"Name":"Whitley Davidson","Age":40,"About":"Consectetur dolore anim veniam aliqua deserunt officia eu. Et ullamco commodo ad officia duis ex incididunt proident consequat nostrud proident quis tempor. Sunt magna ad excepteur eu sint aliqua eiusmod deserunt proident. Do labore est dolore voluptate ullamco est dolore excepteur magna duis quis. Quis laborum deserunt ipsum velit occaecat est laborum enim aute. Officia dolore sit voluptate quis mollit veniam. Laborum nisi ullamco nisi sit nulla cillum et id nisi.\n","Gender":"male"}]`,
+        },
+        TestSearch {
+            Limit:      "1",
+            Offset:     "0",
+            OrderField: "Age",
+            OrderBy:    "-1",
+            StatusCode: http.StatusOK,
+            Response:   `[{"Id":1,"Name":"Hilda Mayer","Age":21,"About":"Sit commodo consectetur minim amet ex. Elit aute mollit fugiat labore sint ipsum dolor cupidatat qui reprehenderit. Eu nisi in exercitation culpa sint aliqua nulla nulla proident eu. Nisi reprehenderit anim cupidatat dolor incididunt laboris mollit magna commodo ex. Cupidatat sit id aliqua amet nisi et voluptate voluptate commodo ex eiusmod et nulla velit.\n","Gender":"female"}]`,
+        },
+        TestSearch {
+            Limit:      "1",
+            Offset:     "0",
+            OrderField: "Age",
+            OrderBy:    "1",
+            StatusCode: http.StatusOK,
+            Response:   `[{"Id":32,"Name":"Christy Knapp","Age":40,"About":"Incididunt culpa dolore laborum cupidatat consequat. Aliquip cupidatat pariatur sit consectetur laboris labore anim labore. Est sint ut ipsum dolor ipsum nisi tempor in tempor aliqua. Aliquip labore cillum est consequat anim officia non reprehenderit ex duis elit. Amet aliqua eu ad velit incididunt ad ut magna. Culpa dolore qui anim consequat commodo aute.\n","Gender":"female"}]`,
+        },
+        TestSearch {
             Limit:      "10",
             Offset:     "0",
             OrderBy:    "bad",
             StatusCode: http.StatusBadRequest,
-            Response:   `{"Error": "Cannot parse order_by"}`,
+            Response:   `{"Error": "Cannot parse order_by (strconv.Atoi: parsing "bad": invalid syntax)"}`,
         },
         TestSearch {
             Limit:      "10",
@@ -272,9 +302,9 @@ func TestSearchServer(t *testing.T) {
         TestSearch {
             Limit:      "10",
             Offset:     "0",
-            Query:      "Name",
-            StatusCode: http.StatusBadRequest,
-            Response:   `{"Error": "OrderBy invalid"}`,
+            Query:      "Newman",
+            StatusCode: http.StatusOK,
+            Response:   `[{"Id":14,"Name":"Nicholson Newman","Age":23,"About":"Tempor minim reprehenderit dolore et ad. Irure id fugiat incididunt do amet veniam ex consequat. Quis ad ipsum excepteur eiusmod mollit nulla amet velit quis duis ut irure.\n","Gender":"male"}]`,
         },
     }
 
@@ -309,6 +339,90 @@ func TestSearchServer(t *testing.T) {
             t.Errorf("[%d] wrong Response: got\n%+v, expected\n%+v", caseNum, bodyStr, item.Response)
         }
 
+    }
+
+}
+
+type TestCase struct {
+    Request     SearchRequest
+    Response    SearchResponse
+    Err         error
+}
+
+func (t TestCase) NextPage() bool {
+    if t.Request.Limit == len(t.Response.Users) {
+        return true
+    }
+    return false
+}
+
+func TestFindUsers(t *testing.T) {
+    cases := []TestCase {
+        TestCase {
+            Request: SearchRequest{
+                Limit: 1,
+                Offset: 0,
+                OrderField: "Id",
+                OrderBy: -1,
+            },
+            Response:  SearchResponse{
+                Users: []User {
+                    User{
+                        Id: 0,
+                        Name: "Boyd Wolf",
+                        Age: 22,
+                        About: "Nulla cillum enim voluptate consequat laborum esse excepteur occaecat commodo nostrud excepteur ut cupidatat. Occaecat minim incididunt ut proident ad sint nostrud ad laborum sint pariatur. Ut nulla commodo dolore officia. Consequat anim eiusmod amet commodo eiusmod deserunt culpa. Ea sit dolore nostrud cillum proident nisi mollit est Lorem pariatur. Lorem aute officia deserunt dolor nisi aliqua consequat nulla nostrud ipsum irure id deserunt dolore. Minim reprehenderit nulla exercitation labore ipsum.\n",
+                        Gender: "male",
+                    },
+                },
+            },
+        },
+        TestCase{
+            Request: SearchRequest{
+                Limit:      1,
+                Offset:     0,
+                OrderField: "Name",
+                OrderBy:    -1,
+            },
+            Response: SearchResponse {
+                Users: []User{
+                    User{
+                        Id: 15,
+                        Name: "Allison Valdez",
+                        Age: 21,
+                        About: "Labore excepteur voluptate velit occaecat est nisi minim. Laborum ea et irure nostrud enim sit incididunt reprehenderit id est nostrud eu. Ullamco sint nisi voluptate cillum nostrud aliquip et minim. Enim duis esse do aute qui officia ipsum ut occaecat deserunt. Pariatur pariatur nisi do ad dolore reprehenderit et et enim esse dolor qui. Excepteur ullamco adipisicing qui adipisicing tempor minim aliquip.\n",
+                        Gender: "male",
+                    },
+                },
+            },
+        },
+    }
+
+    srv := httptest.NewServer(http.HandlerFunc(SearchServer))
+
+    for caseNum, item := range cases {
+        client := &SearchClient {
+            URL:    testSrv.URL,
+        }
+        result, err := user.FindUsers(item.Request)
+        if err != nil {
+
+            continue
+        }
+
+        if result.NextPage != item.NextPage() {
+            t.Errorf("[%d] NextPage does not match: expected %v got %v", caseNum, item.NextPage(), result.NextPage)
+        }
+        if len(result.Users) != len(item.Response.Users) {
+            t.Errorf("[%d] Invalid number of users: expected %v got %v", caseNum, len(item.Response.Users), len(result.Users))
+            continue
+        }
+
+        for i, u := range result.Users {
+            if u.Id != item.Response.Users[i].Id || u.Name != item.Response.Users[i].Name || a.Age != item.Response.Users[i].item.Response.Users[i].Age || u.About != item.Response.Users[i].About || u.Gender != item.Response.Users[i].Gender {
+                t.Errorf("[%d] User do not match: expected $+v got %+v", caseNum, item.Response.Users[i], u)
+            }
+        }
     }
 
 }
