@@ -199,8 +199,8 @@ func SearchServer(w http.ResponseWriter, r *http.Request) {
         io.WriteString(w, fmt.Sprintf(`{"Error": "Cannot serialize users"}`))
         return
     }
-    w.Write(data)
     w.WriteHeader(http.StatusOK)
+    w.Write(data)
 }
 
 type TestSearch struct {
@@ -402,9 +402,9 @@ func TestFindUsers(t *testing.T) {
 
     for caseNum, item := range cases {
         client := &SearchClient {
-            URL:    testSrv.URL,
+            URL:    srv.URL,
         }
-        result, err := user.FindUsers(item.Request)
+        result, err := client.FindUsers(item.Request)
         if err != nil {
 
             continue
@@ -419,8 +419,12 @@ func TestFindUsers(t *testing.T) {
         }
 
         for i, u := range result.Users {
-            if u.Id != item.Response.Users[i].Id || u.Name != item.Response.Users[i].Name || a.Age != item.Response.Users[i].item.Response.Users[i].Age || u.About != item.Response.Users[i].About || u.Gender != item.Response.Users[i].Gender {
-                t.Errorf("[%d] User do not match: expected $+v got %+v", caseNum, item.Response.Users[i], u)
+            if u.Id != item.Response.Users[i].Id ||
+                u.Name != item.Response.Users[i].Name ||
+                u.Age != item.Response.Users[i].Age ||
+                u.About != item.Response.Users[i].About ||
+                u.Gender != item.Response.Users[i].Gender {
+                t.Errorf("[%d] User do not match: expected %+v got %+v", caseNum, item.Response.Users[i], u)
             }
         }
     }
