@@ -118,11 +118,54 @@ func FilterUsers(users []User, filter string) []User {
     return newUsers
 }
 
+func CopyUsers(users []User) []User {
+    res := make([]User, len(users))
+    copy(res, users)
+    return res
+}
+
+func SortUsers(users []User, orderField string, orderBy int) []User{
+    var order = func() func(i, j int) bool {
+        cmpInt := map[int]func(a, b int) bool {
+            -1: func(a, b int) bool { return a < b },
+            0:  func(_, _ int) bool { return true },
+            1:  func(a, b int) bool { return a > b },
+        }
+        cmpStr := map[int]func(a, b string) bool {
+            -1: func(a, b string) bool { return a < b },
+            0:  func(_, _ string) bool { return true },
+            1:  func(a, b string) bool { return a > b },
+        }
+        field := map[string] func(i, j int) bool {
+            "Id":   func(i, j int) bool {
+                return cmpInt[orderBy](users[i].Id, users[j].Id)
+            },
+            "Name": func(i, j int) bool {
+                return cmpStr[orderBy](users[i].Name, users[j].Name)
+            },
+            "Age":  func(i, j int) bool {
+                return cmpInt[orderBy](users[i].Age, users[j].Age)
+            },
+        }
+        return field[orderField]
+    }
+    sort.Slice(users, order())
+    return users
+}
+
 func SearchServer(w http.ResponseWriter, r *http.Request) {
     params, err := ParseParams(r)
     if err != nil {
         w.WriteHeader(http.StatusBadRequest)
         io.WriteString(w, fmt.Sprintf(`{"Error": "%v"}`, err))
+        return
+    }
+    if r.Header.Get("AccessToken") == "unauthorized" {
+        w.WriteHeader(http.StatusUnauthorized)
+        return
+    }
+    if r.Header.Get("AccessToken") == "fatal error" {
+        w.WriteHeader(http.StatusInternalServerError)
         return
     }
     file, err := os.Open("dataset.xml")
@@ -154,31 +197,7 @@ func SearchServer(w http.ResponseWriter, r *http.Request) {
     }
 
     if params.OrderField != "" {
-        var order = func(orderField string, orderBy int) func(i, j int) bool {
-            cmpInt := map[int]func(a, b int) bool {
-                -1: func(a, b int) bool { return a < b },
-                0:  func(_, _ int) bool { return true },
-                1:  func(a, b int) bool { return a > b },
-            }
-            cmpStr := map[int]func(a, b string) bool {
-                -1: func(a, b string) bool { return a < b },
-                0:  func(_, _ string) bool { return true },
-                1:  func(a, b string) bool { return a > b },
-            }
-            field := map[string] func(i, j int) bool {
-                "Id":   func(i, j int) bool {
-                    return cmpInt[orderBy](users[i].Id, users[j].Id)
-                },
-                "Name": func(i, j int) bool {
-                    return cmpStr[orderBy](users[i].Name, users[j].Name)
-                },
-                "Age":  func(i, j int) bool {
-                    return cmpInt[orderBy](users[i].Age, users[j].Age)
-                },
-            }
-            return field[orderField]
-        }
-        sort.Slice(users, order(params.OrderField, params.OrderBy))
+        SortUsers(users, params.OrderField, params.OrderBy)
     }
 
     if params.Offset > 0 {
@@ -346,7 +365,7 @@ func TestSearchServer(t *testing.T) {
 type TestCase struct {
     Request     SearchRequest
     Response    SearchResponse
-    Err         error
+    Err         string
 }
 
 func (t TestCase) NextPage() bool {
@@ -366,15 +385,18 @@ func TestFindUsers(t *testing.T) {
                 OrderBy: -1,
             },
             Response:  SearchResponse{
-                Users: []User {
-                    User{
-                        Id: 0,
-                        Name: "Boyd Wolf",
-                        Age: 22,
-                        About: "Nulla cillum enim voluptate consequat laborum esse excepteur occaecat commodo nostrud excepteur ut cupidatat. Occaecat minim incididunt ut proident ad sint nostrud ad laborum sint pariatur. Ut nulla commodo dolore officia. Consequat anim eiusmod amet commodo eiusmod deserunt culpa. Ea sit dolore nostrud cillum proident nisi mollit est Lorem pariatur. Lorem aute officia deserunt dolor nisi aliqua consequat nulla nostrud ipsum irure id deserunt dolore. Minim reprehenderit nulla exercitation labore ipsum.\n",
-                        Gender: "male",
-                    },
-                },
+                Users: SortUsers(CopyUsers(TestUsers), "Id", -1)[:1],
+            },
+        },
+        TestCase{
+            Request: SearchRequest{
+                Limit: 26,
+                Offset: 0,
+                OrderField: "Id",
+                OrderBy: -1,
+            },
+            Response:  SearchResponse{
+                Users: SortUsers(CopyUsers(TestUsers), "Id", -1)[:25],
             },
         },
         TestCase{
@@ -385,16 +407,20 @@ func TestFindUsers(t *testing.T) {
                 OrderBy:    -1,
             },
             Response: SearchResponse {
-                Users: []User{
-                    User{
-                        Id: 15,
-                        Name: "Allison Valdez",
-                        Age: 21,
-                        About: "Labore excepteur voluptate velit occaecat est nisi minim. Laborum ea et irure nostrud enim sit incididunt reprehenderit id est nostrud eu. Ullamco sint nisi voluptate cillum nostrud aliquip et minim. Enim duis esse do aute qui officia ipsum ut occaecat deserunt. Pariatur pariatur nisi do ad dolore reprehenderit et et enim esse dolor qui. Excepteur ullamco adipisicing qui adipisicing tempor minim aliquip.\n",
-                        Gender: "male",
-                    },
-                },
+                Users: SortUsers(CopyUsers(TestUsers), "Name", -1)[:1],
             },
+        },
+        TestCase{
+            Request: SearchRequest{
+                Limit: -1,
+            },
+            Err: "limit must be > 0",
+        },
+        TestCase{
+            Request: SearchRequest{
+                Offset: -1,
+            },
+            Err: "offset must be > 0",
         },
     }
 
@@ -404,9 +430,15 @@ func TestFindUsers(t *testing.T) {
         client := &SearchClient {
             URL:    srv.URL,
         }
-        result, err := client.FindUsers(item.Request)
-        if err != nil {
-
+        result, resultErr := client.FindUsers(item.Request)
+        if item.Err != "" {
+            if item.Err != resultErr.Error() {
+                t.Errorf("[%d] Expected error %v got %v", caseNum, item.Err, resultErr)
+            }
+            continue
+        }
+        if resultErr != nil {
+            t.Errorf("[%d] Expected no error, got %v", caseNum, resultErr)
             continue
         }
 
@@ -416,6 +448,10 @@ func TestFindUsers(t *testing.T) {
         if len(result.Users) != len(item.Response.Users) {
             t.Errorf("[%d] Invalid number of users: expected %v got %v", caseNum, len(item.Response.Users), len(result.Users))
             continue
+        }
+
+        if item.Request.Limit > 25 && len(result.Users) > 25 {
+            t.Errorf("[%d] More users than limit 25", caseNum)
         }
 
         for i, u := range result.Users {
@@ -429,4 +465,30 @@ func TestFindUsers(t *testing.T) {
         }
     }
 
+}
+
+func TestUnauthorized(t *testing.T) {
+
+    srv := httptest.NewServer(http.HandlerFunc(SearchServer))
+    client := &SearchClient {
+        URL:            srv.URL,
+        AccessToken:    "unauthorized",
+    }
+    _, resultErr := client.FindUsers(SearchRequest{})
+    if resultErr.Error() != "Bad AccessToken" {
+        t.Errorf("Must be unauthorized")
+    }
+}
+
+func TestFatalError(t *testing.T) {
+
+    srv := httptest.NewServer(http.HandlerFunc(SearchServer))
+    client := &SearchClient {
+        URL:            srv.URL,
+        AccessToken:    "fatal error",
+    }
+    _, resultErr := client.FindUsers(SearchRequest{})
+    if resultErr.Error() != "SearchServer fatal error" {
+        t.Errorf("Must be fatal error")
+    }
 }
